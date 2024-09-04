@@ -111,6 +111,10 @@ type ForwardActionConfig struct {
 	// The target group stickiness for the rule.
 	// +optional
 	TargetGroupStickinessConfig *TargetGroupStickinessConfig `json:"targetGroupStickinessConfig,omitempty"`
+
+	// The target group weighted routing strategy.
+	// +optional
+	WeightedRoutingStrategy string `json:"weightedRoutingStrategy,omitempty"`
 }
 
 func (c *ForwardActionConfig) validate() error {

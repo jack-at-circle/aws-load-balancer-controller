@@ -3,6 +3,7 @@ package ingress
 import (
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	networking "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -64,4 +65,7 @@ type Group struct {
 
 	// InactiveMembers are Ingresses that no longer belong to this group, but still hold the finalizers.
 	InactiveMembers []*networking.Ingress
+
+	// Endpoints is the list of endpoints in the namespace of the group.
+	Endpoints []corev1.Endpoints
 }

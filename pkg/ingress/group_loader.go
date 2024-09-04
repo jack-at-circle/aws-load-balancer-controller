@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	networking "k8s.io/api/networking/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/annotations"
@@ -102,10 +103,16 @@ func (m *defaultGroupLoader) Load(ctx context.Context, groupID GroupID) (Group, 
 		return Group{}, err
 	}
 
+	endpointsList := &corev1.EndpointsList{}
+	if err := m.client.List(ctx, endpointsList); err != nil {
+		return Group{}, err
+	}
+
 	return Group{
 		ID:              groupID,
 		Members:         sortedMembers,
 		InactiveMembers: inactiveMembers,
+		Endpoints:       endpointsList.Items,
 	}, nil
 }
 

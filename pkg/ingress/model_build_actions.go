@@ -3,14 +3,16 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode"
+
 	awssdk "github.com/aws/aws-sdk-go/aws"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/aws-load-balancer-controller/pkg/k8s"
 	"sigs.k8s.io/aws-load-balancer-controller/pkg/model/core"
 	elbv2model "sigs.k8s.io/aws-load-balancer-controller/pkg/model/elbv2"
-	"strings"
-	"unicode"
 )
 
 func (t *defaultModelBuildTask) buildActions(ctx context.Context, protocol elbv2model.Protocol, ing ClassifiedIngress, backend EnhancedBackend) ([]elbv2model.Action, error) {
@@ -100,6 +102,11 @@ func (t *defaultModelBuildTask) buildForwardAction(ctx context.Context, ing Clas
 		return elbv2model.Action{}, errors.New("missing ForwardConfig")
 	}
 
+	switch actionCfg.ForwardConfig.WeightedRoutingStrategy {
+	case "failover":
+		actionCfg.ForwardConfig.TargetGroups = t.applyWeightedRoutingFailover(ing, *actionCfg.ForwardConfig)
+	}
+
 	var targetGroupTuples []elbv2model.TargetGroupTuple
 	for _, tgt := range actionCfg.ForwardConfig.TargetGroups {
 		var tgARN core.StringToken
@@ -137,6 +144,44 @@ func (t *defaultModelBuildTask) buildForwardAction(ctx context.Context, ing Clas
 			TargetGroupStickinessConfig: stickinessCfg,
 		},
 	}, nil
+}
+
+// applyWeightedRoutingFailover applies a simple failover mechanism in case the primary targetGroups have no active Endpoints
+func (t *defaultModelBuildTask) applyWeightedRoutingFailover(ing ClassifiedIngress, forwardCfg ForwardActionConfig) []TargetGroupTuple {
+	if len(forwardCfg.TargetGroups) <= 1 {
+		return forwardCfg.TargetGroups
+	}
+
+	var endpoints = make(map[types.NamespacedName]corev1.Endpoints)
+	for _, e := range t.ingGroup.Endpoints {
+		endpoints[k8s.NamespacedName(e.GetObjectMeta())] = e
+	}
+
+	var defaultTarget int
+	var totalWeighted int64
+
+	var targetGroupTuples []TargetGroupTuple
+	for idx, tgt := range forwardCfg.TargetGroups {
+		if tgt.TargetGroupARN != nil {
+			defaultTarget = idx
+		} else {
+			svcKey := types.NamespacedName{
+				Namespace: ing.Ing.Namespace,
+				Name:      awssdk.StringValue(tgt.ServiceName),
+			}
+			if end, ok := endpoints[svcKey]; (!ok || len(end.Subsets) == 0) && len(forwardCfg.TargetGroups) > 1 {
+				tgt.Weight = awssdk.Int64(0)
+			}
+		}
+
+		totalWeighted += awssdk.Int64Value(tgt.Weight)
+		targetGroupTuples = append(targetGroupTuples, tgt)
+	}
+	if totalWeighted == 0 {
+		targetGroupTuples[defaultTarget].Weight = awssdk.Int64(1)
+	}
+
+	return targetGroupTuples
 }
 
 func (t *defaultModelBuildTask) buildAuthenticateCognitoAction(_ context.Context, authCfg AuthConfig) (elbv2model.Action, error) {
