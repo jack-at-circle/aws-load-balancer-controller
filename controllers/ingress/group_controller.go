@@ -290,6 +290,8 @@ func (r *groupReconciler) setupWatches(_ context.Context, c controller.Controlle
 		r.logger.WithName("eventHandlers").WithName("ingress"))
 	svcEventHandler := eventhandlers.NewEnqueueRequestsForServiceEvent(ingEventChan, r.k8sClient, r.eventRecorder,
 		r.logger.WithName("eventHandlers").WithName("service"))
+	endpointEventHandler := eventhandlers.NewEnqueueRequestsForEndpointsEvent(svcEventChan, r.k8sClient,
+		r.logger.WithName("eventHandlers").WithName("endpoints"))
 	secretEventHandler := eventhandlers.NewEnqueueRequestsForSecretEvent(ingEventChan, svcEventChan, r.k8sClient, r.eventRecorder,
 		r.logger.WithName("eventHandlers").WithName("secret"))
 	if err := c.Watch(source.Channel(ingEventChan, ingEventHandler)); err != nil {
@@ -302,6 +304,9 @@ func (r *groupReconciler) setupWatches(_ context.Context, c controller.Controlle
 		return err
 	}
 	if err := c.Watch(source.Kind(mgr.GetCache(), &corev1.Service{}, svcEventHandler)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind(mgr.GetCache(), &corev1.Endpoints{}, endpointEventHandler)); err != nil {
 		return err
 	}
 	if err := c.Watch(source.Channel(secretEventsChan, secretEventHandler)); err != nil {
